@@ -40,7 +40,11 @@ def process_dataframe(df):
     star_to_num = {"One":1, "Two":2, "Three":3, "Four":4, "Five":5}
     df['price_gbp'] = df['raw_price'].str.replace(r'[^0-9.]','', regex=True).astype(float)
     df['star_rating'] = df['star_word'].map(star_to_num)
-    df['stock_flag'] = df['stock_text'].str.contains('In stock', case=False).astype(int)
+    
+    # ✅ FIX 1 - BOOLEAN (Idhe miss ayindi) - True/False
+    df['availability'] = df['stock_text'].str.contains('In stock', case=False).astype(bool)
+    df['stock_flag'] = df['availability']  # backup
+    
     df['price_gbp'] = df['price_gbp'].fillna(df['price_gbp'].median())
     df['star_rating'] = df['star_rating'].fillna(df['star_rating'].median())
     df.dropna(subset=['book_title'], inplace=True)
@@ -58,13 +62,15 @@ def load_into_db(df):
         category_id INTEGER PRIMARY KEY AUTOINCREMENT,
         category_name TEXT UNIQUE NOT NULL
     )""")
+    # ✅ FIX 2 - BOOLEAN TYPE IN TABLE
     cur.execute("""CREATE TABLE book_inventory (
         book_id INTEGER PRIMARY KEY AUTOINCREMENT,
         book_title TEXT NOT NULL,
         price_gbp REAL,
         price_inr REAL,
         star_rating INTEGER,
-        stock_status INTEGER,
+        availability BOOLEAN,
+        stock_status BOOLEAN,
         category_id INTEGER,
         FOREIGN KEY(category_id) REFERENCES book_categories(category_id)
     )""")
@@ -74,10 +80,11 @@ def load_into_db(df):
     cat_lookup = {name: cid for cid, name in cur.execute("SELECT category_id, category_name FROM book_categories")}
 
     for _, r in df.iterrows():
+        # ✅ FIX 3 - bool() tho insert
         cur.execute("""INSERT INTO book_inventory
-        (book_title, price_gbp, price_inr, star_rating, stock_status, category_id)
-        VALUES (?,?,?,?,?,?)""",
-        (r['book_title'], r['price_gbp'], r['price_inr'], int(r['star_rating']), int(r['stock_flag']), cat_lookup[r['cat_name']]))
+        (book_title, price_gbp, price_inr, star_rating, availability, stock_status, category_id)
+        VALUES (?,?,?,?,?,?,?)""",
+        (r['book_title'], r['price_gbp'], r['price_inr'], int(r['star_rating']), bool(r['availability']), bool(r['availability']), cat_lookup[r['cat_name']]))
 
     conn.commit()
     return conn
@@ -109,6 +116,7 @@ if __name__ == "__main__":
     raw_df = scrape_books_data(5)
     clean_df = process_dataframe(raw_df)
     print(f"Total: {len(clean_df)} books, {clean_df['cat_name'].nunique()} categories")
+    print(f"Availability dtype: {clean_df['availability'].dtype} - should be bool")
     connection = load_into_db(clean_df)
     execute_queries(connection)
     connection.close()
